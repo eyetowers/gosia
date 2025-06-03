@@ -6,14 +6,6 @@ import (
 	"fmt"
 	"io"
 	"net"
-	"regexp"
-	"strconv"
-
-	"github.com/eyetowers/gosia/pkg/sia/message"
-)
-
-var (
-	messageRE = regexp.MustCompile(`^\n([[:xdigit:]]{8})"([^"]+)"(\d{4})L\d{1,4}#(\d{4})\[.*\]\r$`)
 )
 
 func Serve(bind string) error {
@@ -37,39 +29,38 @@ func handleConnection(c net.Conn) {
 	fmt.Printf("[%s] Connected\n", c.RemoteAddr())
 	defer c.Close()
 
+	peer := c.RemoteAddr().String()
+	reader := bufio.NewReader(c)
+
 	for {
-		err := processMessage(c)
+		err := processMessage(peer, reader, c)
 		if errors.Is(err, io.EOF) {
-			fmt.Printf("[%s] Disconnected\n", c.RemoteAddr())
+			fmt.Printf("[%s] Disconnected\n", peer)
 			return
 		}
 		if err != nil {
-			fmt.Printf("[%s] Error: %s.\n", c.RemoteAddr(), err)
+			fmt.Printf("[%s] Error: %s.\n", peer, err)
 			return
 		}
 	}
 }
 
-func processMessage(c net.Conn) error {
-	resp, err := bufio.NewReader(c).ReadString(0x0D)
+func processMessage(peer string, r *bufio.Reader, w io.Writer) error {
+	req, err := r.ReadString(0x0D)
 	if err != nil {
 		return fmt.Errorf("reading message: %w", err)
 	}
-	fmt.Printf("[%s] Received: %q\n", c.RemoteAddr(), resp)
+	fmt.Printf("[%s] Received: %q\n", peer, req)
 
-	matches := messageRE.FindStringSubmatch(resp)
-	if len(matches) < 5 {
-		return fmt.Errorf("unexpected message format %q", resp)
-	}
-	seq, err := strconv.ParseUint(matches[3], 10, 16)
+	_, identity, seq, err := Parse(req)
 	if err != nil {
-		return fmt.Errorf("malformed message sequence: %w", err)
+		return fmt.Errorf("parsing request %q: %w", req, err)
 	}
 
-	m := Encode(uint16(seq), &Identity{AuthCode: matches[4]}, message.Ack)
-	fmt.Printf("[%s] Sent: %q\n", c.RemoteAddr(), m)
+	m := Encode(seq, identity, Ack)
+	fmt.Printf("[%s] Sent: %q\n", peer, m)
 
-	_, err = c.Write([]byte(m))
+	_, err = w.Write([]byte(m))
 	if err != nil {
 		return fmt.Errorf("sending response: %w", err)
 	}

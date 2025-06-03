@@ -1,15 +1,6 @@
-package message
+package sia
 
 import "fmt"
-
-type Subject int
-
-const (
-	Unspecified Subject = iota
-	Area        Subject = iota
-	Zone        Subject = iota
-	User        Subject = iota
-)
 
 var codeToSubject = map[string]Subject{
 	"AR": Unspecified,
@@ -20,9 +11,7 @@ var codeToSubject = map[string]Subject{
 
 func DCS(
 	code string,
-	zone Identifier,
-	area Identifier,
-	user Identifier,
+	zone, area, user Identifier,
 ) Message {
 	return &dcs{
 		code: code,

@@ -1,7 +1,16 @@
-package message
+package sia
 
 import (
 	"strconv"
+)
+
+type Subject int
+
+const (
+	Unspecified Subject = iota
+	Area        Subject = iota
+	Zone        Subject = iota
+	User        Subject = iota
 )
 
 func Empty() Identifier {

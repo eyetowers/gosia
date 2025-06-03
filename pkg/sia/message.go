@@ -1,4 +1,4 @@
-package message
+package sia
 
 type Message interface {
 	Payload(authCode string) string

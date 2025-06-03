@@ -4,11 +4,9 @@ import (
 	"bufio"
 	"fmt"
 	"net"
-
-	"github.com/eyetowers/gosia/pkg/sia/message"
 )
 
-func Send(server string, sequence uint16, identity *Identity, message message.Message) error {
+func Send(server string, sequence uint16, identity Identity, message Message) error {
 	conn, err := net.Dial("tcp", server)
 	if err != nil {
 		return fmt.Errorf("connecting to %q: %w", server, err)
