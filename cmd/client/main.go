@@ -21,9 +21,15 @@ func main() {
 	}
 	defer client.Close()
 
-	time.Sleep(time.Minute)
+	time.Sleep(15 * time.Second)
 
-	msg := sia.DCS("BA", sia.Named(1, "Partition 1"), sia.Named(2, "Zone 2"), sia.Empty())
+	msg := sia.DCS(
+		"BA",
+		sia.Zone(2, "Zone 2"),
+		sia.Area(1, "Partition 1"),
+		sia.Verification("https://portal.eyetowers.io"),
+		sia.Timestamp(time.Now()),
+	)
 	err = client.Send(msg)
 	if err != nil {
 		panic(err)
