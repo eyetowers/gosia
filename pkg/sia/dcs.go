@@ -6,10 +6,16 @@ import (
 )
 
 var codeToSubject = map[string]Subject{
+	// AC restoral: AC power has been restored.
 	"AR": unspecified,
+	// AC trouble: AC power has been failed.
 	"AT": unspecified,
+	// Burglary alarm: Burglary zone has been violated while armed.
 	"BA": zone,
+	// Burglary cancel: Alarm has been cancelled.
 	"BC": user,
+	// Burglary restoral: Alarm/trouble condition eliminated.
+	"BR": zone,
 }
 
 type field func(m *dcs)

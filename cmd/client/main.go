@@ -23,14 +23,25 @@ func main() {
 
 	time.Sleep(15 * time.Second)
 
-	msg := sia.DCS(
+	err = client.Send(sia.DCS(
 		"BA",
 		sia.Zone(2, "Zone 2"),
 		sia.Area(1, "Partition 1"),
 		sia.Verification("https://portal.eyetowers.io"),
 		sia.Timestamp(time.Now()),
-	)
-	err = client.Send(msg)
+	))
+	if err != nil {
+		panic(err)
+	}
+
+	time.Sleep(15 * time.Second)
+
+	err = client.Send(sia.DCS(
+		"BR",
+		sia.Zone(2, "Zone 2"),
+		sia.Area(1, "Partition 1"),
+		sia.Timestamp(time.Now()),
+	))
 	if err != nil {
 		panic(err)
 	}

@@ -97,7 +97,6 @@ func send(server string, sequence uint16, identity Identity, message Message) er
 	defer conn.Close()
 
 	m := Encode(sequence, identity, message)
-	fmt.Printf("Sent: %q\n", m)
 	_, err = conn.Write([]byte(m))
 	if err != nil {
 		return fmt.Errorf("sending message %q to %q: %w", m, server, err)
@@ -107,7 +106,6 @@ func send(server string, sequence uint16, identity Identity, message Message) er
 	if err != nil {
 		return fmt.Errorf("reading server %q response: %w", server, err)
 	}
-	fmt.Printf("Received: %q\n", resp)
 
 	reply, id, seq, err := Parse(resp)
 	if err != nil {
