@@ -52,7 +52,7 @@ func (c *Client) Send(message Message) error {
 }
 
 func (c *Client) ping() error {
-	return c.Send(Null)
+	return send(c.server, 0, c.identity, Null)
 }
 
 func (c *Client) nextSequence() uint16 {
@@ -74,7 +74,7 @@ func (c *Client) keepAlive(pingPeriod time.Duration, pingError PingError) {
 	for {
 		select {
 		case <-ticker.C:
-			err := c.Send(Null)
+			err := c.ping()
 			if err != nil && pingError != nil {
 				pingError(err)
 			}
