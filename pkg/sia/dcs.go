@@ -16,6 +16,16 @@ var codeToSubject = map[string]Subject{
 	"BC": user,
 	// Burglary restoral: Alarm/trouble condition eliminated.
 	"BR": zone,
+	// Automatic closing: Area armed automatically.
+	"CA": area,
+	// Close area: Area armed.
+	"CG": area,
+	// Automatic opening: Area disarmed automatically.
+	"OA": area,
+	// Open area: Area disarmed.
+	"OG": area,
+	// Automatic test: Automatic communication test report.
+	"RP": unspecified,
 }
 
 type field func(m *dcs)

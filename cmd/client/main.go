@@ -21,6 +21,32 @@ func main() {
 	}
 	defer client.Close()
 
+	err = client.Send(sia.DCS(
+		"RP",
+		sia.Timestamp(time.Now()),
+	))
+	if err != nil {
+		panic(err)
+	}
+
+	err = client.Send(sia.DCS(
+		"OA",
+		sia.Area(1, "Partition 1"),
+		sia.Timestamp(time.Now()),
+	))
+	if err != nil {
+		panic(err)
+	}
+
+	err = client.Send(sia.DCS(
+		"CG",
+		sia.Area(1, "Partition 1"),
+		sia.Timestamp(time.Now()),
+	))
+	if err != nil {
+		panic(err)
+	}
+
 	time.Sleep(15 * time.Second)
 
 	err = client.Send(sia.DCS(
