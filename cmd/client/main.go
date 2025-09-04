@@ -9,13 +9,13 @@ import (
 )
 
 func main() {
-	if len(os.Args) < 2 {
+	if len(os.Args) < 3 {
 		panic("Missing the target address argument.")
 	}
 
-	client, err := sia.New(os.Args[1], sia.AuthCode("1177"), 10*time.Second, func(err error) {
+	client, err := sia.New(os.Args[1], sia.AuthCode(os.Args[2]), 10*time.Second, func(err error) {
 		fmt.Printf("Ping error: %s\n", err)
-	})
+	}, true)
 	if err != nil {
 		panic(err)
 	}

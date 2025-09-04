@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"net"
+	"os"
 	"sync"
 	"time"
 )
@@ -23,17 +24,22 @@ type Client struct {
 	stop    context.CancelFunc
 	workers sync.WaitGroup
 
+	verbose bool
+
 	mu       sync.Mutex
 	sequence uint16
 }
 
-func New(server string, identity Identity, pingPeriod time.Duration, pingError PingError) (*Client, error) {
+func New(
+	server string, identity Identity, pingPeriod time.Duration, pingError PingError, verbose bool,
+) (*Client, error) {
 	ctx, cancel := context.WithCancel(context.Background())
 	c := &Client{
 		server:   server,
 		identity: identity,
 		ctx:      ctx,
 		stop:     cancel,
+		verbose:  verbose,
 	}
 
 	err := c.ping()
@@ -48,11 +54,11 @@ func New(server string, identity Identity, pingPeriod time.Duration, pingError P
 }
 
 func (c *Client) Send(message Message) error {
-	return send(c.server, c.nextSequence(), c.identity, message)
+	return c.send(c.nextSequence(), message)
 }
 
 func (c *Client) ping() error {
-	return send(c.server, 0, c.identity, Null)
+	return c.send(0, Null)
 }
 
 func (c *Client) nextSequence() uint16 {
@@ -89,30 +95,37 @@ func (c *Client) Close() {
 	c.workers.Wait()
 }
 
-func send(server string, sequence uint16, identity Identity, message Message) error {
-	conn, err := net.Dial("tcp", server)
+func (c *Client) send(sequence uint16, message Message) error {
+	conn, err := net.Dial("tcp", c.server)
 	if err != nil {
-		return fmt.Errorf("connecting to %q: %w", server, err)
+		return fmt.Errorf("connecting to %q: %w", c.server, err)
 	}
 	defer conn.Close()
 
-	m := Encode(sequence, identity, message)
+	m := Encode(sequence, c.identity, message)
+	if c.verbose {
+		fmt.Fprintf(os.Stderr, "SENT: %q\n", m)
+	}
+
 	_, err = conn.Write([]byte(m))
 	if err != nil {
-		return fmt.Errorf("sending message %q to %q: %w", m, server, err)
+		return fmt.Errorf("sending message %q to %q: %w", m, c.server, err)
 	}
 
 	resp, err := bufio.NewReader(conn).ReadString(0x0D)
 	if err != nil {
-		return fmt.Errorf("reading server %q response: %w", server, err)
+		return fmt.Errorf("reading server %q response: %w", c.server, err)
+	}
+	if c.verbose {
+		fmt.Fprintf(os.Stderr, "GOT: %q\n", resp)
 	}
 
 	reply, id, seq, err := Parse(resp)
 	if err != nil {
-		return fmt.Errorf("parsing server %q response %q: %w", server, resp, err)
+		return fmt.Errorf("parsing server %q response %q: %w", c.server, resp, err)
 	}
-	if id != identity {
-		return fmt.Errorf("mismatched identity %q, expected %q", id, identity)
+	if id != c.identity {
+		return fmt.Errorf("mismatched identity %q, expected %q", id, c.identity)
 	}
 	if seq != sequence {
 		return fmt.Errorf("mismatched sequence %d, expected %d", seq, sequence)
