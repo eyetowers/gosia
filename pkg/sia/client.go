@@ -42,8 +42,11 @@ func New(
 		verbose:  verbose,
 	}
 
-	err := c.ping()
-	if err != nil {
+	if _, err := linePrefix(identity); err != nil {
+		return nil, err
+	}
+
+	if err := c.ping(); err != nil {
 		return nil, fmt.Errorf("initial SIA ping: %w", err)
 	}
 
@@ -58,7 +61,7 @@ func (c *Client) Send(message Message) error {
 }
 
 func (c *Client) ping() error {
-	return c.send(0, Null)
+	return c.send(c.nextSequence(), Null)
 }
 
 func (c *Client) nextSequence() uint16 {
@@ -96,13 +99,17 @@ func (c *Client) Close() {
 }
 
 func (c *Client) send(sequence uint16, message Message) error {
+	m, err := Encode(sequence, c.identity, message)
+	if err != nil {
+		return err
+	}
+
 	conn, err := net.Dial("tcp", c.server)
 	if err != nil {
 		return fmt.Errorf("connecting to %q: %w", c.server, err)
 	}
 	defer conn.Close()
 
-	m := Encode(sequence, c.identity, message)
 	if c.verbose {
 		fmt.Fprintf(os.Stderr, "SENT: %q\n", m)
 	}
@@ -120,18 +127,78 @@ func (c *Client) send(sequence uint16, message Message) error {
 		fmt.Fprintf(os.Stderr, "GOT: %q\n", resp)
 	}
 
-	reply, id, seq, err := Parse(resp)
+	parsed, err := Parse(resp)
 	if err != nil {
 		return fmt.Errorf("parsing server %q response %q: %w", c.server, resp, err)
 	}
-	if id != c.identity {
-		return fmt.Errorf("mismatched identity %q, expected %q", id, c.identity)
+	return classifyResponse(parsed, sequence, c.identity)
+}
+
+// classifyResponse maps a parsed receiver response to either nil (ACK), a
+// typed *NakError / *DuhError, or a generic "unexpected reply" error.
+func classifyResponse(parsed ParsedFrame, sequence uint16, identity Identity) error {
+	if parsed.Sequence != sequence {
+		return fmt.Errorf("mismatched sequence %d, expected %d", parsed.Sequence, sequence)
 	}
-	if seq != sequence {
-		return fmt.Errorf("mismatched sequence %d, expected %d", seq, sequence)
+	switch parsed.Message.ID() {
+	case Ack.ID():
+		if parsed.Account != identity.Account {
+			return fmt.Errorf("mismatched account %q, expected %q", parsed.Account, identity.Account)
+		}
+		return nil
+	case Nak.ID():
+		return &NakError{
+			Receiver: parsed.Receiver,
+			Line:     parsed.Line,
+			Account:  parsed.Account,
+			Sequence: parsed.Sequence,
+		}
+	case Duh.ID():
+		return &DuhError{
+			Receiver: parsed.Receiver,
+			Line:     parsed.Line,
+			Account:  parsed.Account,
+			Sequence: parsed.Sequence,
+		}
+	default:
+		return fmt.Errorf("unexpected reply id %q", parsed.Message.ID())
 	}
-	if reply.ID() != Ack.ID() {
-		return fmt.Errorf("message not acked, got %q instead", reply.ID())
-	}
-	return nil
+}
+
+// NakError is returned by Client.Send when the receiver answers with a NAK
+// frame, indicating protocol-level rejection of the request.
+type NakError struct {
+	Receiver string
+	Line     string
+	Account  string
+	Sequence uint16
+}
+
+func (e *NakError) Error() string {
+	return fmt.Sprintf("SIA receiver rejected message (NAK) seq=%d receiver=%q line=%q account=%q",
+		e.Sequence, e.Receiver, e.Line, e.Account)
+}
+
+func (e *NakError) Is(target error) bool {
+	_, ok := target.(*NakError)
+	return ok
+}
+
+// DuhError is returned by Client.Send when the receiver answers with a DUH
+// frame, indicating it does not understand the message id.
+type DuhError struct {
+	Receiver string
+	Line     string
+	Account  string
+	Sequence uint16
+}
+
+func (e *DuhError) Error() string {
+	return fmt.Sprintf("SIA receiver did not understand message (DUH) seq=%d receiver=%q line=%q account=%q",
+		e.Sequence, e.Receiver, e.Line, e.Account)
+}
+
+func (e *DuhError) Is(target error) bool {
+	_, ok := target.(*DuhError)
+	return ok
 }

@@ -109,9 +109,9 @@ func (m dcs) ID() string {
 	return "SIA-DCS"
 }
 
-func (m dcs) Payload(authCode string) string {
+func (m dcs) Payload(account string) string {
 	subject := codeToSubject[m.code]
-	result := fmt.Sprintf("#%s|N", authCode)
+	result := fmt.Sprintf("#%s|N", account)
 	result += mayRender("id", m.user, user, subject)
 	result += mayRender("ri", m.area, area, subject)
 	result += m.code

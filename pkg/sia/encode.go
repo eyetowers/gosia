@@ -2,22 +2,39 @@ package sia
 
 import (
 	"fmt"
+	"regexp"
 	"strings"
 )
 
-func Encode(sequence uint16, i Identity, m Message) string {
-	payload := fmt.Sprintf("\"%s\"%04dL0%s", m.ID(), sequence, toBody(i, m))
+var lineRE = regexp.MustCompile(`^[[:xdigit:]]{1,6}$`)
+
+func Encode(sequence uint16, i Identity, m Message) (string, error) {
+	line, err := linePrefix(i)
+	if err != nil {
+		return "", err
+	}
+	payload := fmt.Sprintf("\"%s\"%04dL%s%s", m.ID(), sequence, line, toBody(i, m))
 	length := len(payload)
 	crc := checksum([]byte(payload))
-	return fmt.Sprintf("\n%04X%04X%s\r", crc, length, payload)
+	return fmt.Sprintf("\n%04X%04X%s\r", crc, length, payload), nil
+}
+
+func linePrefix(i Identity) (string, error) {
+	if i.Line == "" {
+		return "0", nil
+	}
+	if !lineRE.MatchString(i.Line) {
+		return "", fmt.Errorf("invalid SIA line %q: must be 1-6 hex digits", i.Line)
+	}
+	return i.Line, nil
 }
 
 func toBody(i Identity, m Message) string {
 	var result strings.Builder
 	result.WriteRune('#')
-	result.WriteString(i.AuthCode)
+	result.WriteString(i.Account)
 	result.WriteRune('[')
-	result.WriteString(m.Payload(i.AuthCode))
+	result.WriteString(m.Payload(i.Account))
 	result.WriteRune(']')
 	appendMetadata(&result, m)
 	appendTimestamp(&result, m)

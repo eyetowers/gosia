@@ -52,12 +52,15 @@ func processMessage(peer string, r *bufio.Reader, w io.Writer) error {
 	}
 	fmt.Printf("[%s] Received: %q\n", peer, req)
 
-	_, identity, seq, err := Parse(req)
+	parsed, err := Parse(req)
 	if err != nil {
 		return fmt.Errorf("parsing request %q: %w", req, err)
 	}
 
-	m := Encode(seq, identity, Ack)
+	m, err := Encode(parsed.Sequence, Identity{Account: parsed.Account, Line: parsed.Line}, Ack)
+	if err != nil {
+		return fmt.Errorf("encoding response: %w", err)
+	}
 	fmt.Printf("[%s] Sent: %q\n", peer, m)
 
 	_, err = w.Write([]byte(m))
