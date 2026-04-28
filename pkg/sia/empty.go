@@ -5,7 +5,7 @@ import "time"
 var (
 	Null = empty{id: "NULL"}
 	Ack  = empty{id: "ACK"}
-	Nack = empty{id: "NACK"}
+	Nak  = empty{id: "NAK"}
 	Duh  = empty{id: "DUH"}
 )
 

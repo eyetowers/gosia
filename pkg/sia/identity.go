@@ -1,11 +1,12 @@
 package sia
 
-func AuthCode(code string) Identity {
+func Account(account string) Identity {
 	return Identity{
-		AuthCode: code,
+		Account: account,
 	}
 }
 
 type Identity struct {
-	AuthCode string
+	Account string
+	Line    string
 }
