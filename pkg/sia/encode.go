@@ -54,6 +54,38 @@ func appendMetadata(out *strings.Builder, m Message) {
 	}
 }
 
+// EncodeEncrypted encodes an encrypted DC-09 frame per ANSI/SIA DC-09-2013 p.16.
+// The data section (payload + closing ']' + metadata + timestamp) is encrypted
+// with AES-CBC (zero IV) using key. The message ID gains a '*' prefix in the
+// frame to signal encryption. NAK and DUH must never be encrypted.
+func EncodeEncrypted(sequence uint16, i Identity, m Message, key []byte) (string, error) {
+	if id := m.ID(); id == "NAK" || id == "DUH" {
+		return "", fmt.Errorf("DC-09: %q must not be encrypted", id)
+	}
+	line, err := linePrefix(i)
+	if err != nil {
+		return "", err
+	}
+
+	// Build the content to encrypt: everything that normally sits between '[' and
+	// end-of-body — the payload, the closing ']', optional metadata, optional timestamp.
+	var inner strings.Builder
+	inner.WriteString(m.Payload(i.Account))
+	inner.WriteRune(']')
+	appendMetadata(&inner, m)
+	appendTimestamp(&inner, m)
+
+	ciphertext, err := encryptPayload(key, []byte(inner.String()))
+	if err != nil {
+		return "", fmt.Errorf("encrypting SIA DC-09 payload: %w", err)
+	}
+
+	// Encrypted frame: "*id"seq address "#" account "[" ciphertext (no closing ']')
+	payload := fmt.Sprintf("\"*%s\"%04dL%s#%s[%s", m.ID(), sequence, line, i.Account, ciphertext)
+	crc := checksum([]byte(payload))
+	return fmt.Sprintf("\n%04X%04X%s\r", crc, len(payload), payload), nil
+}
+
 func appendTimestamp(out *strings.Builder, m Message) {
 	ts := m.Timestamp()
 	if ts.IsZero() {

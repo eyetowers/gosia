@@ -11,6 +11,7 @@ var (
 
 type empty struct {
 	id string
+	ts time.Time
 }
 
 func (m empty) ID() string {
@@ -26,5 +27,5 @@ func (m empty) Metadata() map[Metadata]string {
 }
 
 func (m empty) Timestamp() time.Time {
-	return time.Time{}
+	return m.ts
 }

@@ -16,9 +16,20 @@ const (
 
 type PingError func(err error)
 
+// ClientOption configures optional behaviour on a Client.
+type ClientOption func(*Client)
+
+// WithEncryptionKey enables AES-CBC payload encryption (DC-09-2013 p.16).
+// key must be 16, 24, or 32 bytes. Both outgoing messages and incoming
+// responses are handled with encrypted framing while the option is set.
+func WithEncryptionKey(key []byte) ClientOption {
+	return func(c *Client) { c.key = key }
+}
+
 type Client struct {
 	server   string
 	identity Identity
+	key      []byte // nil means plaintext
 
 	ctx     context.Context
 	stop    context.CancelFunc
@@ -32,6 +43,7 @@ type Client struct {
 
 func New(
 	server string, identity Identity, pingPeriod time.Duration, pingError PingError, verbose bool,
+	opts ...ClientOption,
 ) (*Client, error) {
 	ctx, cancel := context.WithCancel(context.Background())
 	c := &Client{
@@ -40,6 +52,9 @@ func New(
 		ctx:      ctx,
 		stop:     cancel,
 		verbose:  verbose,
+	}
+	for _, o := range opts {
+		o(c)
 	}
 
 	if _, err := linePrefix(identity); err != nil {
@@ -61,7 +76,7 @@ func (c *Client) Send(message Message) error {
 }
 
 func (c *Client) ping() error {
-	return c.send(c.nextSequence(), Null)
+	return c.send(c.nextSequence(), empty{id: "NULL", ts: time.Now()})
 }
 
 func (c *Client) nextSequence() uint16 {
@@ -99,7 +114,15 @@ func (c *Client) Close() {
 }
 
 func (c *Client) send(sequence uint16, message Message) error {
-	m, err := Encode(sequence, c.identity, message)
+	var (
+		m   string
+		err error
+	)
+	if c.key != nil {
+		m, err = EncodeEncrypted(sequence, c.identity, message, c.key)
+	} else {
+		m, err = Encode(sequence, c.identity, message)
+	}
 	if err != nil {
 		return err
 	}
@@ -127,7 +150,13 @@ func (c *Client) send(sequence uint16, message Message) error {
 		fmt.Fprintf(os.Stderr, "GOT: %q\n", resp)
 	}
 
-	parsed, err := Parse(resp)
+	var parsed ParsedFrame
+	if c.key != nil {
+		keys := MapKeyStore{c.identity.Account: c.key}
+		parsed, err = ParseEncrypted(resp, keys)
+	} else {
+		parsed, err = Parse(resp)
+	}
 	if err != nil {
 		return fmt.Errorf("parsing server %q response %q: %w", c.server, resp, err)
 	}

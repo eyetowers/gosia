@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/hex"
 	"fmt"
 	"os"
 	"time"
@@ -10,12 +11,27 @@ import (
 
 func main() {
 	if len(os.Args) < 3 {
-		panic("Missing the target address argument.")
+		fmt.Fprintln(os.Stderr, "usage: client <server> <account> [<key>]")
+		os.Exit(1)
+	}
+
+	var opts []sia.ClientOption
+	if len(os.Args) >= 4 {
+		key, err := hex.DecodeString(os.Args[3])
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "key must be a hex string: %v\n", err)
+			os.Exit(1)
+		}
+		if n := len(key); n != 16 && n != 24 && n != 32 {
+			fmt.Fprintf(os.Stderr, "key must decode to 16, 24, or 32 bytes (got %d)\n", n)
+			os.Exit(1)
+		}
+		opts = append(opts, sia.WithEncryptionKey(key))
 	}
 
 	client, err := sia.New(os.Args[1], sia.Account(os.Args[2]), 10*time.Second, func(err error) {
 		fmt.Printf("Ping error: %s\n", err)
-	}, true)
+	}, true, opts...)
 	if err != nil {
 		panic(err)
 	}
