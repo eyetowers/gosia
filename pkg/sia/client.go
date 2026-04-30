@@ -127,7 +127,7 @@ func (c *Client) send(sequence uint16, message Message) error {
 		fmt.Fprintf(os.Stderr, "GOT: %q\n", resp)
 	}
 
-	parsed, err := Parse(resp)
+	parsed, err := ParseWithKey(resp, c.identity.key())
 	if err != nil {
 		return fmt.Errorf("parsing server %q response %q: %w", c.server, resp, err)
 	}
