@@ -25,22 +25,38 @@ var (
 // Receiver and Account are optional on the wire and reported as the empty
 // string when absent. Line is required; Sequence is 0-9999.
 type ParsedFrame struct {
-	Message  Message
-	Sequence uint16
-	Receiver string
-	Line     string
-	Account  string
+	Message   Message
+	Sequence  uint16
+	Receiver  string
+	Line      string
+	Account   string
+	Encrypted bool
 }
 
 // Parse validates the framing of a SIA DC-09 message and tokenizes its
 // payload into a ParsedFrame. It returns one of ErrMalformedFrame,
 // ErrCRCMismatch, or ErrLengthMismatch (wrapped) on failure.
 func Parse(msg string) (ParsedFrame, error) {
+	return ParseWithKey(msg, nil)
+}
+
+func ParseWithKey(msg string, key []byte) (ParsedFrame, error) {
 	payload, err := unframe(msg)
 	if err != nil {
 		return ParsedFrame{}, err
 	}
-	return tokenize(payload)
+	id, err := peekID(payload)
+	if err != nil {
+		return ParsedFrame{}, fmt.Errorf("%w: %s", ErrMalformedFrame, err)
+	}
+	encrypted := isEncryptedID(id)
+	if encrypted {
+		payload, err = decryptPayload(payload, key)
+		if err != nil {
+			return ParsedFrame{}, err
+		}
+	}
+	return tokenize(payload, encrypted)
 }
 
 // unframe validates the LF<CRC><LLLL><payload>CR envelope per DC-09-2013
@@ -94,7 +110,7 @@ var headerRE = regexp.MustCompile(
 // then hands the variable-shape header to headerRE. Splitting it that way
 // lets the header regex disambiguate the L/A overlap without backtracking
 // across the whole payload.
-func tokenize(payload string) (ParsedFrame, error) {
+func tokenize(payload string, encrypted bool) (ParsedFrame, error) {
 	s := &scanner{src: payload}
 
 	id, err := s.readQuoted()
@@ -147,12 +163,18 @@ func tokenize(payload string) (ParsedFrame, error) {
 	}
 
 	return ParsedFrame{
-		Message:  empty{id: id},
-		Sequence: seq,
-		Receiver: receiver,
-		Line:     line,
-		Account:  account,
+		Message:   empty{id: plaintextID(id)},
+		Sequence:  seq,
+		Receiver:  receiver,
+		Line:      line,
+		Account:   account,
+		Encrypted: encrypted,
 	}, nil
+}
+
+func peekID(payload string) (string, error) {
+	s := &scanner{src: payload}
+	return s.readQuoted()
 }
 
 func parseSequence(input string) (uint16, error) {

@@ -4,16 +4,37 @@ import (
 	"fmt"
 	"regexp"
 	"strings"
+	"time"
 )
 
 var lineRE = regexp.MustCompile(`^[[:xdigit:]]{1,6}$`)
+
+const timestampLayout = "_15:04:05,01-02-2006"
 
 func Encode(sequence uint16, i Identity, m Message) (string, error) {
 	line, err := linePrefix(i)
 	if err != nil {
 		return "", err
 	}
-	payload := fmt.Sprintf("\"%s\"%04dL%s%s", m.ID(), sequence, line, toBody(i, m))
+	key := i.key()
+	if err := validateAESKey(key); err != nil {
+		return "", err
+	}
+
+	id := m.ID()
+	body := toBody(i, m)
+	if len(key) > 0 {
+		id = encryptedID(id)
+		if m.Timestamp().IsZero() {
+			body += time.Now().UTC().Format(timestampLayout)
+		}
+	}
+
+	payload := fmt.Sprintf("\"%s\"%04dL%s%s", id, sequence, line, body)
+	payload, err = encryptPayload(payload, key)
+	if err != nil {
+		return "", err
+	}
 	length := len(payload)
 	crc := checksum([]byte(payload))
 	return fmt.Sprintf("\n%04X%04X%s\r", crc, length, payload), nil
@@ -59,5 +80,5 @@ func appendTimestamp(out *strings.Builder, m Message) {
 	if ts.IsZero() {
 		return
 	}
-	out.WriteString(ts.UTC().Format("_15:04:05,01-02-2006"))
+	out.WriteString(ts.UTC().Format(timestampLayout))
 }

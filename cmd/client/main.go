@@ -13,7 +13,16 @@ func main() {
 		panic("Missing the target address argument.")
 	}
 
-	client, err := sia.New(os.Args[1], sia.Account(os.Args[2]), 10*time.Second, func(err error) {
+	identity := sia.Account(os.Args[2])
+	if len(os.Args) >= 4 {
+		var err error
+		identity, err = identity.WithEncryptionKeyHex(os.Args[3])
+		if err != nil {
+			panic(err)
+		}
+	}
+
+	client, err := sia.New(os.Args[1], identity, 10*time.Second, func(err error) {
 		fmt.Printf("Ping error: %s\n", err)
 	}, true)
 	if err != nil {
