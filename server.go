@@ -8,10 +8,12 @@ import (
 	"net"
 )
 
+// Serve starts a TCP SIA DC-09 receiver on bind and acknowledges valid frames.
 func Serve(bind string) error {
 	return serve(bind, nil)
 }
 
+// ServeEncrypted starts a TCP SIA DC-09 receiver that expects encrypted frames.
 func ServeEncrypted(bind string, key []byte) error {
 	if err := validateAESKey(key); err != nil {
 		return err
@@ -27,13 +29,15 @@ func serve(bind string, key []byte) error {
 	if err != nil {
 		return fmt.Errorf("listening on %q: %w", bind, err)
 	}
-	defer l.Close()
+	defer func() {
+		_ = l.Close()
+	}()
 
 	fmt.Printf("Listening on %q\n", bind)
 	for {
 		c, err := l.Accept()
 		if err != nil {
-			return fmt.Errorf("accepting connection %q on %q: %w", c.RemoteAddr(), bind, err)
+			return fmt.Errorf("accepting connection on %q: %w", bind, err)
 		}
 		go handleConnection(c, key)
 	}
@@ -41,7 +45,9 @@ func serve(bind string, key []byte) error {
 
 func handleConnection(c net.Conn, key []byte) {
 	fmt.Printf("[%s] Connected\n", c.RemoteAddr())
-	defer c.Close()
+	defer func() {
+		_ = c.Close()
+	}()
 
 	peer := c.RemoteAddr().String()
 	reader := bufio.NewReader(c)

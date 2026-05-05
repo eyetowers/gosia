@@ -30,55 +30,64 @@ var codeToSubject = map[string]Subject{
 
 type field func(m *dcs)
 
+// Zone adds a zone identifier to a SIA-DCS message.
 func Zone(id uint16, name string) field {
 	return func(m *dcs) {
 		m.zone = Identifier{id, name}
 	}
 }
 
+// Area adds an area identifier to a SIA-DCS message.
 func Area(id uint16, name string) field {
 	return func(m *dcs) {
 		m.area = Identifier{id, name}
 	}
 }
 
+// User adds a user identifier to a SIA-DCS message.
 func User(id uint16, name string) field {
 	return func(m *dcs) {
 		m.user = Identifier{id, name}
 	}
 }
 
+// Verification adds a verification URL metadata field to a SIA-DCS message.
 func Verification(url string) field {
 	return func(m *dcs) {
 		m.addMetadata(verification, url)
 	}
 }
 
+// Longitude adds a longitude metadata field to a SIA-DCS message.
 func Longitude(lon string) field {
 	return func(m *dcs) {
 		m.addMetadata(longitude, lon)
 	}
 }
 
+// Latitude adds a latitude metadata field to a SIA-DCS message.
 func Latitude(lat string) field {
 	return func(m *dcs) {
 		m.addMetadata(latitude, lat)
 	}
 }
 
+// Altitude adds an altitude metadata field to a SIA-DCS message.
 func Altitude(alt string) field {
 	return func(m *dcs) {
 		m.addMetadata(altitude, alt)
 	}
 }
 
+// Timestamp adds a UTC timestamp to a SIA-DCS message.
 func Timestamp(ts time.Time) field {
 	return func(m *dcs) {
 		m.timestamp = ts
 	}
 }
 
-func DCS(
+// Event creates a SIA-DCS event message with the given event code and fields.
+func Event(
 	code string,
 	fields ...field,
 ) Message {

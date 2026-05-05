@@ -14,10 +14,13 @@ import (
 const encryptedIDPrefix = "*"
 
 var (
+	// ErrEncryptedMessage reports that a frame is encrypted but no key was supplied.
 	ErrEncryptedMessage = errors.New("encrypted SIA DC-09 message")
-	ErrEncryption       = errors.New("SIA DC-09 encryption error")
+	// ErrEncryption reports AES key, encrypted payload, or encryption processing failures.
+	ErrEncryption = errors.New("SIA DC-09 encryption error")
 )
 
+// ParseEncryptionKey decodes and validates a hex-encoded AES key.
 func ParseEncryptionKey(input string) ([]byte, error) {
 	key, err := hex.DecodeString(strings.TrimSpace(input))
 	if err != nil {

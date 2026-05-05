@@ -11,6 +11,7 @@ var lineRE = regexp.MustCompile(`^[[:xdigit:]]{1,6}$`)
 
 const timestampLayout = "_15:04:05,01-02-2006"
 
+// Encode converts a message into a complete SIA DC-09 frame.
 func Encode(sequence uint16, i Identity, m Message) (string, error) {
 	line, err := linePrefix(i)
 	if err != nil {

@@ -14,8 +14,47 @@ const (
 	maxSequence = 9999
 )
 
-type PingError func(err error)
+// PingErrorHandler is called when a keepalive ping fails.
+type PingErrorHandler func(err error)
 
+// Option configures a Client created by Dial.
+type Option func(*clientConfig) error
+
+type clientConfig struct {
+	pingPeriod time.Duration
+	pingError  PingErrorHandler
+	verbose    bool
+}
+
+// WithKeepalive enables periodic keepalive pings. A zero duration disables
+// periodic keepalive pings.
+func WithKeepalive(period time.Duration) Option {
+	return func(c *clientConfig) error {
+		if period < 0 {
+			return fmt.Errorf("SIA ping period must be non-negative, got %s", period)
+		}
+		c.pingPeriod = period
+		return nil
+	}
+}
+
+// WithPingErrorHandler sets the callback used when a keepalive ping fails.
+func WithPingErrorHandler(handler PingErrorHandler) Option {
+	return func(c *clientConfig) error {
+		c.pingError = handler
+		return nil
+	}
+}
+
+// WithVerbose enables protocol logging to stderr.
+func WithVerbose() Option {
+	return func(c *clientConfig) error {
+		c.verbose = true
+		return nil
+	}
+}
+
+// Client sends SIA DC-09 messages to a receiver.
 type Client struct {
 	server   string
 	identity Identity
@@ -30,16 +69,26 @@ type Client struct {
 	sequence uint16
 }
 
-func New(
-	server string, identity Identity, pingPeriod time.Duration, pingError PingError, verbose bool,
-) (*Client, error) {
+// Dial creates a client, sends an initial ping, and starts periodic keepalive
+// pings when configured with WithKeepalive.
+func Dial(server string, identity Identity, options ...Option) (*Client, error) {
+	cfg := clientConfig{}
+	for _, option := range options {
+		if option == nil {
+			continue
+		}
+		if err := option(&cfg); err != nil {
+			return nil, err
+		}
+	}
+
 	ctx, cancel := context.WithCancel(context.Background())
 	c := &Client{
 		server:   server,
 		identity: identity,
 		ctx:      ctx,
 		stop:     cancel,
-		verbose:  verbose,
+		verbose:  cfg.verbose,
 	}
 
 	if _, err := linePrefix(identity); err != nil {
@@ -50,12 +99,15 @@ func New(
 		return nil, fmt.Errorf("initial SIA ping: %w", err)
 	}
 
-	c.workers.Add(1)
-	go c.keepAlive(pingPeriod, pingError)
+	if cfg.pingPeriod > 0 {
+		c.workers.Add(1)
+		go c.keepAlive(cfg.pingPeriod, cfg.pingError)
+	}
 
 	return c, nil
 }
 
+// Send encodes and transmits a message to the configured receiver.
 func (c *Client) Send(message Message) error {
 	return c.send(c.nextSequence(), message)
 }
@@ -75,7 +127,7 @@ func (c *Client) nextSequence() uint16 {
 	return c.sequence
 }
 
-func (c *Client) keepAlive(pingPeriod time.Duration, pingError PingError) {
+func (c *Client) keepAlive(pingPeriod time.Duration, pingError PingErrorHandler) {
 	ticker := time.NewTicker(pingPeriod)
 	defer ticker.Stop()
 	defer c.workers.Done()
@@ -93,6 +145,7 @@ func (c *Client) keepAlive(pingPeriod time.Duration, pingError PingError) {
 	}
 }
 
+// Close stops the keepalive worker and releases client resources.
 func (c *Client) Close() {
 	c.stop()
 	c.workers.Wait()
@@ -108,7 +161,9 @@ func (c *Client) send(sequence uint16, message Message) error {
 	if err != nil {
 		return fmt.Errorf("connecting to %q: %w", c.server, err)
 	}
-	defer conn.Close()
+	defer func() {
+		_ = conn.Close()
+	}()
 
 	if c.verbose {
 		fmt.Fprintf(os.Stderr, "SENT: %q\n", m)
