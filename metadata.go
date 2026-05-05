@@ -1,5 +1,6 @@
 package sia
 
+// Metadata is a SIA-DCS metadata field code.
 type Metadata string
 
 const (

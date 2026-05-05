@@ -11,8 +11,11 @@ import (
 // SIA DC-09 framing and grammar errors. Wrap with fmt.Errorf("%w: ...") so
 // callers can use errors.Is to assert on the failure mode.
 var (
+	// ErrMalformedFrame reports that a SIA DC-09 frame does not match the expected grammar.
 	ErrMalformedFrame = errors.New("malformed SIA DC-09 frame")
-	ErrCRCMismatch    = errors.New("SIA DC-09 CRC mismatch")
+	// ErrCRCMismatch reports that the frame CRC does not match its payload.
+	ErrCRCMismatch = errors.New("SIA DC-09 CRC mismatch")
+	// ErrLengthMismatch reports that the declared payload length is incorrect.
 	ErrLengthMismatch = errors.New("SIA DC-09 length mismatch")
 )
 
@@ -40,6 +43,7 @@ func Parse(msg string) (ParsedFrame, error) {
 	return ParseWithKey(msg, nil)
 }
 
+// ParseWithKey validates and parses a SIA DC-09 frame, decrypting it with key when needed.
 func ParseWithKey(msg string, key []byte) (ParsedFrame, error) {
 	payload, err := unframe(msg)
 	if err != nil {

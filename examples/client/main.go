@@ -5,7 +5,7 @@ import (
 	"os"
 	"time"
 
-	"github.com/eyetowers/gosia/pkg/sia"
+	sia "github.com/eyetowers/gosia"
 )
 
 func main() {
@@ -22,15 +22,21 @@ func main() {
 		}
 	}
 
-	client, err := sia.New(os.Args[1], identity, 10*time.Second, func(err error) {
-		fmt.Printf("Ping error: %s\n", err)
-	}, true)
+	client, err := sia.Dial(
+		os.Args[1],
+		identity,
+		sia.WithKeepalive(10*time.Second),
+		sia.WithPingErrorHandler(func(err error) {
+			fmt.Printf("Ping error: %s\n", err)
+		}),
+		sia.WithVerbose(),
+	)
 	if err != nil {
 		panic(err)
 	}
 	defer client.Close()
 
-	err = client.Send(sia.DCS(
+	err = client.Send(sia.Event(
 		"RP",
 		sia.Timestamp(time.Now()),
 	))
@@ -38,7 +44,7 @@ func main() {
 		panic(err)
 	}
 
-	err = client.Send(sia.DCS(
+	err = client.Send(sia.Event(
 		"OA",
 		sia.Area(1, "Partition 1"),
 		sia.Timestamp(time.Now()),
@@ -47,7 +53,7 @@ func main() {
 		panic(err)
 	}
 
-	err = client.Send(sia.DCS(
+	err = client.Send(sia.Event(
 		"CG",
 		sia.Area(1, "Partition 1"),
 		sia.Timestamp(time.Now()),
@@ -58,11 +64,11 @@ func main() {
 
 	time.Sleep(15 * time.Second)
 
-	err = client.Send(sia.DCS(
+	err = client.Send(sia.Event(
 		"BA",
 		sia.Zone(2, "Zone 2"),
 		sia.Area(1, "Partition 1"),
-		sia.Verification("https://portal.eyetowers.io"),
+		sia.Verification("https://example.com/verification"),
 		sia.Timestamp(time.Now()),
 	))
 	if err != nil {
@@ -71,7 +77,7 @@ func main() {
 
 	time.Sleep(15 * time.Second)
 
-	err = client.Send(sia.DCS(
+	err = client.Send(sia.Event(
 		"BR",
 		sia.Zone(2, "Zone 2"),
 		sia.Area(1, "Partition 1"),

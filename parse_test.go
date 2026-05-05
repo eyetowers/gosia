@@ -257,7 +257,7 @@ func TestEncode_InvalidLinePrefix(t *testing.T) {
 func TestEncodeEncrypted_RoundTrip(t *testing.T) {
 	key := []byte("0123456789ABCDEF")
 	identity := Identity{Account: "ABCD"}.WithEncryptionKey(key)
-	message := DCS(
+	message := Event(
 		"RP",
 		Timestamp(time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC)),
 	)
@@ -316,7 +316,7 @@ func TestEncodeEncrypted_ACKAddsTimestamp(t *testing.T) {
 func TestEncodeEncrypted_AES256RoundTrip(t *testing.T) {
 	key := []byte("0123456789ABCDEF0123456789ABCDEF")
 	identity := Identity{Account: "CAFE", Line: "1A"}.WithEncryptionKey(key)
-	message := DCS(
+	message := Event(
 		"BA",
 		Zone(2, "Zone 2"),
 		Area(1, "Partition 1"),

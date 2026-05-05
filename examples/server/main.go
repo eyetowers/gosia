@@ -3,7 +3,7 @@ package main
 import (
 	"os"
 
-	"github.com/eyetowers/gosia/pkg/sia"
+	sia "github.com/eyetowers/gosia"
 )
 
 func main() {
