@@ -21,9 +21,10 @@ type PingErrorHandler func(err error)
 type Option func(*clientConfig) error
 
 type clientConfig struct {
-	pingPeriod time.Duration
-	pingError  PingErrorHandler
-	verbose    bool
+	pingPeriod      time.Duration
+	pingError       PingErrorHandler
+	verbose         bool
+	zeroPingSequence bool
 }
 
 // WithKeepalive enables periodic keepalive pings. A zero duration disables
@@ -54,6 +55,16 @@ func WithVerbose() Option {
 	}
 }
 
+// WithZeroPingSequence makes keepalive NULL messages always use sequence 0000
+// instead of the shared rolling counter. Some receivers require a fixed 0000
+// sequence on NULL frames to distinguish polls from events in their parser.
+func WithZeroPingSequence() Option {
+	return func(c *clientConfig) error {
+		c.zeroPingSequence = true
+		return nil
+	}
+}
+
 // Client sends SIA DC-09 messages to a receiver.
 type Client struct {
 	server   string
@@ -63,7 +74,8 @@ type Client struct {
 	stop    context.CancelFunc
 	workers sync.WaitGroup
 
-	verbose bool
+	verbose          bool
+	zeroPingSequence bool
 
 	mu       sync.Mutex
 	sequence uint16
@@ -84,11 +96,12 @@ func Dial(server string, identity Identity, options ...Option) (*Client, error) 
 
 	ctx, cancel := context.WithCancel(context.Background())
 	c := &Client{
-		server:   server,
-		identity: identity,
-		ctx:      ctx,
-		stop:     cancel,
-		verbose:  cfg.verbose,
+		server:           server,
+		identity:         identity,
+		ctx:              ctx,
+		stop:             cancel,
+		verbose:          cfg.verbose,
+		zeroPingSequence: cfg.zeroPingSequence,
 	}
 
 	if _, err := linePrefix(identity); err != nil {
@@ -113,6 +126,9 @@ func (c *Client) Send(message Message) error {
 }
 
 func (c *Client) ping() error {
+	if c.zeroPingSequence {
+		return c.send(0, Null)
+	}
 	return c.send(c.nextSequence(), Null)
 }
 
