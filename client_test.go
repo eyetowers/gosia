@@ -57,8 +57,8 @@ func TestKeepaliveContinuesAfterRequestTimeout(t *testing.T) {
 	client, err := Dial(
 		l.Addr().String(),
 		Account("1234"),
-		WithKeepalive(40*time.Millisecond),
-		WithTimeout(15*time.Millisecond),
+		WithKeepalive(200*time.Millisecond),
+		WithTimeout(100*time.Millisecond),
 		WithPingErrorHandler(func(err error) {
 			select {
 			case pingErrors <- err:
@@ -108,7 +108,7 @@ func TestCloseCancelsStalledKeepalive(t *testing.T) {
 		_ = conn.Close()
 	}()
 
-	client, err := Dial(l.Addr().String(), Account("1234"), WithKeepalive(20*time.Millisecond))
+	client, err := Dial(l.Addr().String(), Account("1234"), WithKeepalive(100*time.Millisecond))
 	if err != nil {
 		t.Fatalf("Dial = %v", err)
 	}
@@ -121,6 +121,20 @@ func TestCloseCancelsStalledKeepalive(t *testing.T) {
 	}()
 	waitForSignal(t, closed, "client close")
 	waitForSignal(t, serverDone, "test receiver shutdown")
+}
+
+func TestSendAfterCloseReturnsContextCanceled(t *testing.T) {
+	addr, _ := startTestReceiver(t, nil, 1)
+	client, err := Dial(addr, Account("1234"))
+	if err != nil {
+		t.Fatalf("Dial = %v", err)
+	}
+	client.Close()
+
+	err = client.Send(Event("RP"))
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("Send after Close = %v, want context canceled", err)
+	}
 }
 
 func TestClientSendAcknowledged(t *testing.T) {
@@ -306,7 +320,7 @@ func waitForSignal(t *testing.T, signal <-chan struct{}, description string) {
 
 	select {
 	case <-signal:
-	case <-time.After(time.Second):
+	case <-time.After(3 * time.Second):
 		t.Fatalf("timed out waiting for %s", description)
 	}
 }

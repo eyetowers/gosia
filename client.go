@@ -108,6 +108,9 @@ func Dial(server string, identity Identity, options ...Option) (*Client, error) 
 			return nil, err
 		}
 	}
+	if _, err := linePrefix(identity); err != nil {
+		return nil, err
+	}
 
 	ctx, cancel := context.WithCancel(context.Background())
 	c := &Client{
@@ -118,10 +121,6 @@ func Dial(server string, identity Identity, options ...Option) (*Client, error) 
 		verbose:          cfg.verbose,
 		zeroPingSequence: cfg.zeroPingSequence,
 		requestTimeout:   cfg.requestTimeout,
-	}
-
-	if _, err := linePrefix(identity); err != nil {
-		return nil, err
 	}
 
 	if err := c.ping(); err != nil {
@@ -178,7 +177,8 @@ func (c *Client) keepAlive(pingPeriod time.Duration, pingError PingErrorHandler)
 	}
 }
 
-// Close stops the keepalive worker and releases client resources.
+// Close stops the keepalive worker, cancels in-flight requests, and releases
+// client resources. Calls to Send after Close return context.Canceled.
 func (c *Client) Close() {
 	c.stop()
 	c.workers.Wait()
@@ -188,6 +188,9 @@ func (c *Client) send(sequence uint16, message Message) error {
 	ctx := c.ctx
 	if ctx == nil {
 		ctx = context.Background()
+	}
+	if err := ctx.Err(); err != nil {
+		return err
 	}
 	cancel := func() {}
 	if c.requestTimeout > 0 {

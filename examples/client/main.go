@@ -26,6 +26,7 @@ func main() {
 		os.Args[1],
 		identity,
 		sia.WithKeepalive(10*time.Second),
+		sia.WithTimeout(10*time.Second),
 		sia.WithPingErrorHandler(func(err error) {
 			fmt.Printf("Ping error: %s\n", err)
 		}),
