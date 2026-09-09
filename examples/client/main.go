@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"time"
@@ -21,8 +22,10 @@ func main() {
 			panic(err)
 		}
 	}
+	ctx := context.Background()
 
 	client, err := sia.Dial(
+		ctx,
 		os.Args[1],
 		identity,
 		sia.WithKeepalive(10*time.Second),
@@ -37,7 +40,7 @@ func main() {
 	}
 	defer client.Close()
 
-	err = client.Send(sia.Event(
+	err = client.Send(ctx, sia.Event(
 		"RP",
 		sia.Timestamp(time.Now()),
 	))
@@ -45,7 +48,7 @@ func main() {
 		panic(err)
 	}
 
-	err = client.Send(sia.Event(
+	err = client.Send(ctx, sia.Event(
 		"OA",
 		sia.Area(1, "Partition 1"),
 		sia.Timestamp(time.Now()),
@@ -54,7 +57,7 @@ func main() {
 		panic(err)
 	}
 
-	err = client.Send(sia.Event(
+	err = client.Send(ctx, sia.Event(
 		"CG",
 		sia.Area(1, "Partition 1"),
 		sia.Timestamp(time.Now()),
@@ -65,7 +68,7 @@ func main() {
 
 	time.Sleep(15 * time.Second)
 
-	err = client.Send(sia.Event(
+	err = client.Send(ctx, sia.Event(
 		"BA",
 		sia.Zone(2, "Zone 2"),
 		sia.Area(1, "Partition 1"),
@@ -78,7 +81,7 @@ func main() {
 
 	time.Sleep(15 * time.Second)
 
-	err = client.Send(sia.Event(
+	err = client.Send(ctx, sia.Event(
 		"BR",
 		sia.Zone(2, "Zone 2"),
 		sia.Area(1, "Partition 1"),

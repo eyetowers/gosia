@@ -11,7 +11,8 @@ import (
 )
 
 const (
-	maxSequence = 9999
+	maxSequence           = 9999
+	defaultRequestTimeout = 30 * time.Second
 )
 
 // PingErrorHandler is called when a keepalive ping fails.
@@ -48,9 +49,9 @@ func WithPingErrorHandler(handler PingErrorHandler) Option {
 	}
 }
 
-// WithTimeout limits the complete TCP transaction, including connecting,
-// sending the message, and waiting for the receiver response. A zero duration
-// disables the timeout.
+// WithTimeout overrides the default 30-second limit for a complete TCP
+// transaction, including connecting, sending the message, and waiting for the
+// receiver response. A zero duration disables the timeout.
 func WithTimeout(timeout time.Duration) Option {
 	return func(c *clientConfig) error {
 		if timeout < 0 {
@@ -79,7 +80,8 @@ func WithZeroPingSequence() Option {
 	}
 }
 
-// Client sends SIA DC-09 messages to a receiver.
+// Client sends SIA DC-09 messages to a receiver. Clients must be created with
+// Dial; the zero value is not usable.
 type Client struct {
 	server   string
 	identity Identity
@@ -97,9 +99,15 @@ type Client struct {
 }
 
 // Dial creates a client, sends an initial ping, and starts periodic keepalive
-// pings when configured with WithKeepalive.
-func Dial(server string, identity Identity, options ...Option) (*Client, error) {
-	cfg := clientConfig{}
+// pings when configured with WithKeepalive. The context controls the initial
+// ping; canceling it after Dial returns does not close the client.
+func Dial(
+	ctx context.Context,
+	server string,
+	identity Identity,
+	options ...Option,
+) (*Client, error) {
+	cfg := clientConfig{requestTimeout: defaultRequestTimeout}
 	for _, option := range options {
 		if option == nil {
 			continue
@@ -112,18 +120,18 @@ func Dial(server string, identity Identity, options ...Option) (*Client, error) 
 		return nil, err
 	}
 
-	ctx, cancel := context.WithCancel(context.Background())
+	clientCtx, cancel := context.WithCancel(context.Background())
 	c := &Client{
 		server:           server,
 		identity:         identity,
-		ctx:              ctx,
+		ctx:              clientCtx,
 		stop:             cancel,
 		verbose:          cfg.verbose,
 		zeroPingSequence: cfg.zeroPingSequence,
 		requestTimeout:   cfg.requestTimeout,
 	}
 
-	if err := c.ping(); err != nil {
+	if err := c.ping(ctx); err != nil {
 		c.stop()
 		return nil, fmt.Errorf("initial SIA ping: %w", err)
 	}
@@ -136,16 +144,18 @@ func Dial(server string, identity Identity, options ...Option) (*Client, error) 
 	return c, nil
 }
 
-// Send encodes and transmits a message to the configured receiver.
-func (c *Client) Send(message Message) error {
-	return c.send(c.nextSequence(), message)
+// Send encodes and transmits a message to the configured receiver. The request
+// ends when the context is canceled, the client is closed, or its timeout
+// expires.
+func (c *Client) Send(ctx context.Context, message Message) error {
+	return c.send(ctx, c.nextSequence(), message)
 }
 
-func (c *Client) ping() error {
+func (c *Client) ping(ctx context.Context) error {
 	if c.zeroPingSequence {
-		return c.send(0, Null)
+		return c.send(ctx, 0, Null)
 	}
-	return c.send(c.nextSequence(), Null)
+	return c.send(ctx, c.nextSequence(), Null)
 }
 
 func (c *Client) nextSequence() uint16 {
@@ -167,7 +177,7 @@ func (c *Client) keepAlive(pingPeriod time.Duration, pingError PingErrorHandler)
 	for {
 		select {
 		case <-ticker.C:
-			err := c.ping()
+			err := c.ping(c.ctx)
 			if err != nil && pingError != nil {
 				pingError(err)
 			}
@@ -184,18 +194,11 @@ func (c *Client) Close() {
 	c.workers.Wait()
 }
 
-func (c *Client) send(sequence uint16, message Message) error {
-	ctx := c.ctx
-	if ctx == nil {
-		ctx = context.Background()
-	}
-	if err := ctx.Err(); err != nil {
+func (c *Client) send(ctx context.Context, sequence uint16, message Message) error {
+	if err := c.ctx.Err(); err != nil {
 		return err
 	}
-	cancel := func() {}
-	if c.requestTimeout > 0 {
-		ctx, cancel = context.WithTimeout(ctx, c.requestTimeout)
-	}
+	ctx, cancel := c.transactionContext(ctx)
 	defer cancel()
 
 	m, err := Encode(sequence, c.identity, message)
@@ -238,6 +241,24 @@ func (c *Client) send(sequence uint16, message Message) error {
 		return fmt.Errorf("parsing server %q response %q: %w", c.server, resp, err)
 	}
 	return classifyResponse(parsed, sequence, c.identity)
+}
+
+func (c *Client) transactionContext(ctx context.Context) (context.Context, context.CancelFunc) {
+	ctx, cancelClient := context.WithCancel(ctx)
+	stopClientCancel := context.AfterFunc(c.ctx, cancelClient)
+	cancel := func() {
+		stopClientCancel()
+		cancelClient()
+	}
+	if c.requestTimeout == 0 {
+		return ctx, cancel
+	}
+
+	ctx, cancelTimeout := context.WithTimeout(ctx, c.requestTimeout)
+	return ctx, func() {
+		cancelTimeout()
+		cancel()
+	}
 }
 
 func requestError(ctx context.Context, err error) error {

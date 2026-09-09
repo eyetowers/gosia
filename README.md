@@ -21,8 +21,10 @@ import "github.com/eyetowers/gosia"
 
 ```go
 identity := sia.Account("1234")
+ctx := context.Background()
 
 client, err := sia.Dial(
+	ctx,
 	"127.0.0.1:5000",
 	identity,
 	sia.WithKeepalive(30*time.Second),
@@ -33,13 +35,16 @@ if err != nil {
 }
 defer client.Close()
 
-return client.Send(sia.Event(
+return client.Send(ctx, sia.Event(
 	"BA",
 	sia.Zone(2, "Front Door"),
 	sia.Area(1, "Main"),
 	sia.Timestamp(time.Now()),
 ))
 ```
+
+TCP transactions time out after 30 seconds by default. Use `WithTimeout` to
+override the limit or pass zero to disable it.
 
 To use an encrypted receiver key, pass the usual hex-encoded key:
 

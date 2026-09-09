@@ -11,16 +11,29 @@ import (
 )
 
 func TestNewRejectsNegativePingPeriod(t *testing.T) {
-	_, err := Dial("127.0.0.1:1", Account("1234"), WithKeepalive(-time.Second))
+	_, err := Dial(context.Background(), "127.0.0.1:1", Account("1234"), WithKeepalive(-time.Second))
 	if err == nil {
 		t.Fatal("Dial returned nil error for negative ping period")
 	}
 }
 
 func TestDialRejectsNegativeTimeout(t *testing.T) {
-	_, err := Dial("127.0.0.1:1", Account("1234"), WithTimeout(-time.Second))
+	_, err := Dial(context.Background(), "127.0.0.1:1", Account("1234"), WithTimeout(-time.Second))
 	if err == nil {
 		t.Fatal("Dial returned nil error for negative timeout")
+	}
+}
+
+func TestDialUsesDefaultTimeout(t *testing.T) {
+	addr, _ := startTestReceiver(t, nil, 1)
+	client, err := Dial(context.Background(), addr, Account("1234"))
+	if err != nil {
+		t.Fatalf("Dial = %v", err)
+	}
+	defer client.Close()
+
+	if client.requestTimeout != defaultRequestTimeout {
+		t.Fatalf("request timeout = %s, want %s", client.requestTimeout, defaultRequestTimeout)
 	}
 }
 
@@ -55,6 +68,7 @@ func TestKeepaliveContinuesAfterRequestTimeout(t *testing.T) {
 
 	pingErrors := make(chan error, 1)
 	client, err := Dial(
+		context.Background(),
 		l.Addr().String(),
 		Account("1234"),
 		WithKeepalive(200*time.Millisecond),
@@ -108,7 +122,12 @@ func TestCloseCancelsStalledKeepalive(t *testing.T) {
 		_ = conn.Close()
 	}()
 
-	client, err := Dial(l.Addr().String(), Account("1234"), WithKeepalive(100*time.Millisecond))
+	client, err := Dial(
+		context.Background(),
+		l.Addr().String(),
+		Account("1234"),
+		WithKeepalive(100*time.Millisecond),
+	)
 	if err != nil {
 		t.Fatalf("Dial = %v", err)
 	}
@@ -125,13 +144,13 @@ func TestCloseCancelsStalledKeepalive(t *testing.T) {
 
 func TestSendAfterCloseReturnsContextCanceled(t *testing.T) {
 	addr, _ := startTestReceiver(t, nil, 1)
-	client, err := Dial(addr, Account("1234"))
+	client, err := Dial(context.Background(), addr, Account("1234"))
 	if err != nil {
 		t.Fatalf("Dial = %v", err)
 	}
 	client.Close()
 
-	err = client.Send(Event("RP"))
+	err = client.Send(context.Background(), Event("RP"))
 	if !errors.Is(err, context.Canceled) {
 		t.Fatalf("Send after Close = %v, want context canceled", err)
 	}
@@ -140,13 +159,13 @@ func TestSendAfterCloseReturnsContextCanceled(t *testing.T) {
 func TestClientSendAcknowledged(t *testing.T) {
 	addr, received := startTestReceiver(t, nil, 2)
 
-	client, err := Dial(addr, Account("1234"))
+	client, err := Dial(context.Background(), addr, Account("1234"))
 	if err != nil {
 		t.Fatalf("Dial = %v", err)
 	}
 	defer client.Close()
 
-	err = client.Send(Event(
+	err = client.Send(context.Background(), Event(
 		"BA",
 		Zone(2, "Front Door"),
 		Area(1, "Main"),
@@ -174,13 +193,13 @@ func TestClientSendEncryptedAcknowledged(t *testing.T) {
 	key := []byte("0123456789ABCDEF")
 	addr, received := startTestReceiver(t, key, 2)
 
-	client, err := Dial(addr, Account("1234").WithEncryptionKey(key))
+	client, err := Dial(context.Background(), addr, Account("1234").WithEncryptionKey(key))
 	if err != nil {
 		t.Fatalf("Dial = %v", err)
 	}
 	defer client.Close()
 
-	err = client.Send(Event(
+	err = client.Send(context.Background(), Event(
 		"RP",
 		Timestamp(time.Now()),
 	))
