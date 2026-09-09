@@ -29,7 +29,9 @@ type clientConfig struct {
 	zeroPingSequence bool
 }
 
-// WithKeepalive enables periodic keepalive pings. A zero duration disables
+// WithKeepalive enables periodic keepalive pings. Pings are serialized, so a
+// transaction that outlasts the period delays the next ping. Use a timeout no
+// longer than the period when maximum spacing matters. A zero duration disables
 // periodic keepalive pings.
 func WithKeepalive(period time.Duration) Option {
 	return func(c *clientConfig) error {
@@ -195,6 +197,9 @@ func (c *Client) Close() {
 }
 
 func (c *Client) send(ctx context.Context, sequence uint16, message Message) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	if err := c.ctx.Err(); err != nil {
 		return err
 	}

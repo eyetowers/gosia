@@ -99,32 +99,10 @@ func TestKeepaliveContinuesAfterRequestTimeout(t *testing.T) {
 }
 
 func TestCloseCancelsStalledKeepalive(t *testing.T) {
-	l, err := net.Listen("tcp4", "127.0.0.1:0")
-	if err != nil {
-		t.Fatalf("Listen = %v", err)
-	}
-	defer func() {
-		_ = l.Close()
-	}()
-
-	stalled := make(chan struct{})
-	serverDone := make(chan struct{})
-	go func() {
-		defer close(serverDone)
-
-		ackTestConnection(t, l)
-		conn, _ := readTestConnection(t, l)
-		if conn == nil {
-			return
-		}
-		close(stalled)
-		_, _ = io.Copy(io.Discard, conn)
-		_ = conn.Close()
-	}()
-
+	addr, stalled := startStallingTestReceiver(t)
 	client, err := Dial(
 		context.Background(),
-		l.Addr().String(),
+		addr,
 		Account("1234"),
 		WithKeepalive(100*time.Millisecond),
 	)
@@ -139,7 +117,33 @@ func TestCloseCancelsStalledKeepalive(t *testing.T) {
 		close(closed)
 	}()
 	waitForSignal(t, closed, "client close")
-	waitForSignal(t, serverDone, "test receiver shutdown")
+}
+
+func TestSendStopsWhenCallerContextIsCanceled(t *testing.T) {
+	addr, stalled := startStallingTestReceiver(t)
+	client, err := Dial(context.Background(), addr, Account("1234"))
+	if err != nil {
+		t.Fatalf("Dial = %v", err)
+	}
+	defer client.Close()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	sent := make(chan error, 1)
+	go func() {
+		sent <- client.Send(ctx, Event("RP"))
+	}()
+	waitForSignal(t, stalled, "stalled send")
+	cancel()
+
+	select {
+	case err := <-sent:
+		if !errors.Is(err, context.Canceled) {
+			t.Fatalf("Send = %v, want context canceled", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for Send to stop")
+	}
 }
 
 func TestSendAfterCloseReturnsContextCanceled(t *testing.T) {
@@ -312,6 +316,34 @@ func readTestConnection(t *testing.T, l net.Listener) (net.Conn, ParsedFrame) {
 		return nil, ParsedFrame{}
 	}
 	return c, parsed
+}
+
+func startStallingTestReceiver(t *testing.T) (string, <-chan struct{}) {
+	t.Helper()
+
+	l, err := net.Listen("tcp4", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("Listen = %v", err)
+	}
+	stalled := make(chan struct{})
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+
+		ackTestConnection(t, l)
+		conn, _ := readTestConnection(t, l)
+		if conn == nil {
+			return
+		}
+		close(stalled)
+		_, _ = io.Copy(io.Discard, conn)
+		_ = conn.Close()
+	}()
+	t.Cleanup(func() {
+		_ = l.Close()
+		waitForSignal(t, done, "test receiver shutdown")
+	})
+	return l.Addr().String(), stalled
 }
 
 func ackTestConnection(t *testing.T, l net.Listener) {
