@@ -26,6 +26,7 @@ client, err := sia.Dial(
 	"127.0.0.1:5000",
 	identity,
 	sia.WithKeepalive(30*time.Second),
+	sia.WithTimeout(10*time.Second),
 )
 if err != nil {
 	return err

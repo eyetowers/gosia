@@ -21,9 +21,10 @@ type PingErrorHandler func(err error)
 type Option func(*clientConfig) error
 
 type clientConfig struct {
-	pingPeriod      time.Duration
-	pingError       PingErrorHandler
-	verbose         bool
+	pingPeriod       time.Duration
+	pingError        PingErrorHandler
+	requestTimeout   time.Duration
+	verbose          bool
 	zeroPingSequence bool
 }
 
@@ -43,6 +44,19 @@ func WithKeepalive(period time.Duration) Option {
 func WithPingErrorHandler(handler PingErrorHandler) Option {
 	return func(c *clientConfig) error {
 		c.pingError = handler
+		return nil
+	}
+}
+
+// WithTimeout limits the complete TCP transaction, including connecting,
+// sending the message, and waiting for the receiver response. A zero duration
+// disables the timeout.
+func WithTimeout(timeout time.Duration) Option {
+	return func(c *clientConfig) error {
+		if timeout < 0 {
+			return fmt.Errorf("SIA request timeout must be non-negative, got %s", timeout)
+		}
+		c.requestTimeout = timeout
 		return nil
 	}
 }
@@ -76,6 +90,7 @@ type Client struct {
 
 	verbose          bool
 	zeroPingSequence bool
+	requestTimeout   time.Duration
 
 	mu       sync.Mutex
 	sequence uint16
@@ -102,6 +117,7 @@ func Dial(server string, identity Identity, options ...Option) (*Client, error) 
 		stop:             cancel,
 		verbose:          cfg.verbose,
 		zeroPingSequence: cfg.zeroPingSequence,
+		requestTimeout:   cfg.requestTimeout,
 	}
 
 	if _, err := linePrefix(identity); err != nil {
@@ -109,6 +125,7 @@ func Dial(server string, identity Identity, options ...Option) (*Client, error) 
 	}
 
 	if err := c.ping(); err != nil {
+		c.stop()
 		return nil, fmt.Errorf("initial SIA ping: %w", err)
 	}
 
@@ -168,16 +185,31 @@ func (c *Client) Close() {
 }
 
 func (c *Client) send(sequence uint16, message Message) error {
+	ctx := c.ctx
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	cancel := func() {}
+	if c.requestTimeout > 0 {
+		ctx, cancel = context.WithTimeout(ctx, c.requestTimeout)
+	}
+	defer cancel()
+
 	m, err := Encode(sequence, c.identity, message)
 	if err != nil {
 		return err
 	}
 
-	conn, err := net.Dial("tcp", c.server)
+	var dialer net.Dialer
+	conn, err := dialer.DialContext(ctx, "tcp", c.server)
 	if err != nil {
 		return fmt.Errorf("connecting to %q: %w", c.server, err)
 	}
+	stopClose := context.AfterFunc(ctx, func() {
+		_ = conn.Close()
+	})
 	defer func() {
+		stopClose()
 		_ = conn.Close()
 	}()
 
@@ -187,12 +219,12 @@ func (c *Client) send(sequence uint16, message Message) error {
 
 	_, err = conn.Write([]byte(m))
 	if err != nil {
-		return fmt.Errorf("sending message %q to %q: %w", m, c.server, err)
+		return fmt.Errorf("sending message %q to %q: %w", m, c.server, requestError(ctx, err))
 	}
 
 	resp, err := bufio.NewReader(conn).ReadString(0x0D)
 	if err != nil {
-		return fmt.Errorf("reading server %q response: %w", c.server, err)
+		return fmt.Errorf("reading server %q response: %w", c.server, requestError(ctx, err))
 	}
 	if c.verbose {
 		fmt.Fprintf(os.Stderr, "GOT: %q\n", resp)
@@ -203,6 +235,13 @@ func (c *Client) send(sequence uint16, message Message) error {
 		return fmt.Errorf("parsing server %q response %q: %w", c.server, resp, err)
 	}
 	return classifyResponse(parsed, sequence, c.identity)
+}
+
+func requestError(ctx context.Context, err error) error {
+	if ctxErr := ctx.Err(); ctxErr != nil {
+		return ctxErr
+	}
+	return err
 }
 
 // classifyResponse maps a parsed receiver response to either nil (ACK), a

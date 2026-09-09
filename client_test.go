@@ -2,6 +2,7 @@ package sia
 
 import (
 	"bufio"
+	"context"
 	"errors"
 	"io"
 	"net"
@@ -14,6 +15,112 @@ func TestNewRejectsNegativePingPeriod(t *testing.T) {
 	if err == nil {
 		t.Fatal("Dial returned nil error for negative ping period")
 	}
+}
+
+func TestDialRejectsNegativeTimeout(t *testing.T) {
+	_, err := Dial("127.0.0.1:1", Account("1234"), WithTimeout(-time.Second))
+	if err == nil {
+		t.Fatal("Dial returned nil error for negative timeout")
+	}
+}
+
+func TestKeepaliveContinuesAfterRequestTimeout(t *testing.T) {
+	l, err := net.Listen("tcp4", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("Listen = %v", err)
+	}
+	defer func() {
+		_ = l.Close()
+	}()
+
+	stalled := make(chan struct{})
+	recovered := make(chan struct{})
+	serverDone := make(chan struct{})
+	go func() {
+		defer close(serverDone)
+
+		ackTestConnection(t, l)
+
+		conn, _ := readTestConnection(t, l)
+		if conn == nil {
+			return
+		}
+		close(stalled)
+		_, _ = io.Copy(io.Discard, conn)
+		_ = conn.Close()
+
+		ackTestConnection(t, l)
+		close(recovered)
+	}()
+
+	pingErrors := make(chan error, 1)
+	client, err := Dial(
+		l.Addr().String(),
+		Account("1234"),
+		WithKeepalive(40*time.Millisecond),
+		WithTimeout(15*time.Millisecond),
+		WithPingErrorHandler(func(err error) {
+			select {
+			case pingErrors <- err:
+			default:
+			}
+		}),
+	)
+	if err != nil {
+		t.Fatalf("Dial = %v", err)
+	}
+	defer client.Close()
+
+	waitForSignal(t, stalled, "stalled keepalive")
+	select {
+	case err := <-pingErrors:
+		if !errors.Is(err, context.DeadlineExceeded) {
+			t.Fatalf("ping error = %v, want context deadline exceeded", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for keepalive error")
+	}
+	waitForSignal(t, recovered, "recovered keepalive")
+	waitForSignal(t, serverDone, "test receiver shutdown")
+}
+
+func TestCloseCancelsStalledKeepalive(t *testing.T) {
+	l, err := net.Listen("tcp4", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("Listen = %v", err)
+	}
+	defer func() {
+		_ = l.Close()
+	}()
+
+	stalled := make(chan struct{})
+	serverDone := make(chan struct{})
+	go func() {
+		defer close(serverDone)
+
+		ackTestConnection(t, l)
+		conn, _ := readTestConnection(t, l)
+		if conn == nil {
+			return
+		}
+		close(stalled)
+		_, _ = io.Copy(io.Discard, conn)
+		_ = conn.Close()
+	}()
+
+	client, err := Dial(l.Addr().String(), Account("1234"), WithKeepalive(20*time.Millisecond))
+	if err != nil {
+		t.Fatalf("Dial = %v", err)
+	}
+	waitForSignal(t, stalled, "stalled keepalive")
+
+	closed := make(chan struct{})
+	go func() {
+		client.Close()
+		close(closed)
+	}()
+	waitForSignal(t, closed, "client close")
+	waitForSignal(t, serverDone, "test receiver shutdown")
 }
 
 func TestClientSendAcknowledged(t *testing.T) {
@@ -148,5 +255,58 @@ func processTestConnection(t *testing.T, c net.Conn, key []byte, received chan<-
 	}
 	if _, err := c.Write([]byte(resp)); err != nil {
 		t.Errorf("Write ACK = %v", err)
+	}
+}
+
+func readTestConnection(t *testing.T, l net.Listener) (net.Conn, ParsedFrame) {
+	t.Helper()
+
+	c, err := l.Accept()
+	if err != nil {
+		t.Errorf("Accept = %v", err)
+		return nil, ParsedFrame{}
+	}
+	req, err := bufio.NewReader(c).ReadString(0x0D)
+	if err != nil {
+		t.Errorf("ReadString = %v", err)
+		_ = c.Close()
+		return nil, ParsedFrame{}
+	}
+	parsed, err := Parse(req)
+	if err != nil {
+		t.Errorf("Parse = %v", err)
+		_ = c.Close()
+		return nil, ParsedFrame{}
+	}
+	return c, parsed
+}
+
+func ackTestConnection(t *testing.T, l net.Listener) {
+	t.Helper()
+
+	c, parsed := readTestConnection(t, l)
+	if c == nil {
+		return
+	}
+	defer func() {
+		_ = c.Close()
+	}()
+	resp, err := Encode(parsed.Sequence, Identity{Account: parsed.Account, Line: parsed.Line}, Ack)
+	if err != nil {
+		t.Errorf("Encode ACK = %v", err)
+		return
+	}
+	if _, err := c.Write([]byte(resp)); err != nil {
+		t.Errorf("Write ACK = %v", err)
+	}
+}
+
+func waitForSignal(t *testing.T, signal <-chan struct{}, description string) {
+	t.Helper()
+
+	select {
+	case <-signal:
+	case <-time.After(time.Second):
+		t.Fatalf("timed out waiting for %s", description)
 	}
 }
